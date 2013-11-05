@@ -7,8 +7,8 @@ Installation
 If you're using Eclipse, you need to:
 
 1. File, Import
-2. Select **Existing projects into workspace**
-3. **Select root directory**
+2. Select 'Existing projects into workspace'
+3. Select the directory in 'Select root directory'
 
 Usage
 -----
