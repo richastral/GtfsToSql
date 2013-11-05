@@ -1,25 +1,21 @@
 GtfsToSql
 =========
-
 Parses a GTFS feed into an SQL database
 
 Installation
 ------------
-
 If you're using Eclipse, you need to:
 
-# File, Import
-# Select **Existing projects into workspace**
-# **Select root directory**
+1. File, Import
+2. Select **Existing projects into workspace**
+3. **Select root directory**
 
 Usage
 -----
-
 `java -jar GtfsToSql.jar -s /path/to/database/sqlite -g /path/to/extracted/gtfs/`
 
 Notes
 -----
-
 * Only supports Sqlite currently
 * Sqlite file must not already exist
 * GTFS file must be extracted already
