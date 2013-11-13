@@ -245,17 +245,16 @@ public class GtfsParser {
 					insert.setString(i + 1, csv.get(indexes[i]));
 				}
 
-				insert.execute();
-//				insert.addBatch();
+				insert.addBatch();
 
-				if ((row % 1000) == 0) {
-//					insert.executeBatch();
+				if ((row % 10000) == 0) {
+					insert.executeBatch();
 				}
 				
 				row++;
 			}
 
-//			insert.executeBatch();
+			insert.executeBatch();
 
 			mConnection.commit();
 			insert.close();
