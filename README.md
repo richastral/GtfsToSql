@@ -12,13 +12,12 @@ If you're using Eclipse, you need to:
 
 Usage
 -----
-`java -jar GtfsToSql.jar -s /path/to/database/sqlite -g /path/to/extracted/gtfs/`
+`java -jar GtfsToSql.jar -s jdbc:sqlite:/path/to/db.sqlite -g /path/to/extracted/gtfs/`
 
 Notes
 -----
-* Only supports Sqlite currently
-* Sqlite file must not already exist
+* Only supports Sqlite and PostgreSQL currently
 * GTFS file must be extracted already
 * All columns are mapped saved as 'text' (that is, not parsed, modified or typecast)
 
-Table names are the same as filename in the GTFS file (without the `.txt`), and an additional table called `_gtfs_issues` is also created that records issues encountered while reading in the files.
+Table names are the same as filename in the GTFS file (without the `.txt`)
