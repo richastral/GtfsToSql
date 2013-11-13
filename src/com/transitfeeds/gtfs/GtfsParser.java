@@ -247,10 +247,6 @@ public class GtfsParser {
 
 				insert.addBatch();
 
-				if (row > 5) {
-					break;
-				}
-				
 				if ((row % 1000) == 0) {
 					insert.executeBatch();
 				}
