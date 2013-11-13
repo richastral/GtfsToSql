@@ -5,10 +5,12 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.HashSet;
+import java.util.Set;
 
 import org.mozilla.universalchardet.UniversalDetector;
 
@@ -17,12 +19,9 @@ import com.csvreader.CsvReader;
 public class GtfsParser {
 
 	private File mGtfsFile;
-	private File mSqliteFile;
-
 	private Connection mConnection;
-	private PreparedStatement mIssueStatement;
 
-	public GtfsParser(File gtfsFile, File sqliteFile) throws FileNotFoundException, SQLException, Exception {
+	public GtfsParser(File gtfsFile, Connection connection) throws FileNotFoundException, SQLException, Exception {
 		if (!gtfsFile.exists()) {
 			throw new FileNotFoundException("GTFS file not found");
 		}
@@ -31,17 +30,9 @@ public class GtfsParser {
 			throw new Exception("GTFS path must be a directory");
 		}
 
-		if (sqliteFile.exists()) {
-			throw new Exception("Sqlite file already exists");
-		}
-
 		mGtfsFile = gtfsFile;
-		mSqliteFile = sqliteFile;
 
-		// may not work without this call
-		Class.forName("org.sqlite.JDBC");
-
-		mConnection = DriverManager.getConnection(String.format("jdbc:sqlite:" + mSqliteFile.getAbsolutePath()));
+		mConnection = connection;
 		mConnection.setAutoCommit(false);
 	}
 
@@ -78,30 +69,33 @@ public class GtfsParser {
 
 	public void parse() throws SQLException {
 		createGtfsTables();
-		createAuxilaryTables();
 
 		parseFiles();
 		createIndexes();
 	}
 
-	private void createAuxilaryTables() throws SQLException {
-		String[] tables = { "CREATE TABLE _gtfs_file_info (filename TEXT, filesize INTEGER, num_records INTEGER)",
-				"CREATE TABLE _gtfs_issues (filename TEXT, type TEXT, column TEXT, line INTEGER, message TEXT)" };
-
-		for (int i = 0; i < tables.length; i++) {
-			Statement stmt = mConnection.createStatement();
-			stmt.execute(tables[i]);
-			stmt.close();
-		}
-
-		mConnection.commit();
-	}
-
 	private void createGtfsTables() throws SQLException {
+		ResultSet tables = mConnection.getMetaData().getTables(null, null, null, null);
+		
+		Set<String> tableNames = new HashSet<String>();
+		
+		while (tables.next()) {
+			tableNames.add(tables.getString("TABLE_NAME"));
+		}
+		
 		for (int i = 0; i < SCHEMA.length; i += 2) {
+			String tableName = SCHEMA[i];
+			
+			if (tableNames.contains(tableName)) {
+				Statement stmt = mConnection.createStatement();
+				stmt.execute("DROP TABLE " + tableName);
+				stmt.close();
+
+			}
+			
 			String[] fields = SCHEMA[i + 1].split(",");
 
-			String query = "CREATE TABLE " + SCHEMA[i] + " (";
+			String query = "CREATE TABLE " + tableName + " (";
 
 			for (int j = 0; j < fields.length; j++) {
 				if (j > 0) {
@@ -140,32 +134,6 @@ public class GtfsParser {
 		mConnection.commit();
 	}
 
-	private void recordIssue(String filename, String type, String column, int line, String message) {
-		try {
-			mIssueStatement.clearParameters();
-			mIssueStatement.setString(1, filename);
-			mIssueStatement.setString(2, type);
-			mIssueStatement.setString(3, column);
-			mIssueStatement.setInt(4, line);
-			mIssueStatement.setString(5, message);
-			mIssueStatement.execute();
-		} catch (Exception e) {
-
-		}
-	}
-
-	private void recordError(File file, String column, int line, String message) {
-		recordIssue(file.getName(), "ERROR", column, line, message);
-	}
-
-	private void recordWarning(File file, String column, int line, String message) {
-		recordIssue(file.getName(), "WARNING", column, line, message);
-	}
-
-	private void recordFileNotFoundError(File file) {
-		recordError(file, null, -1, "File not found");
-	}
-
 	private File getFile(String filename) {
 		return new File(mGtfsFile.getAbsolutePath() + System.getProperty("file.separator") + filename);
 	}
@@ -198,8 +166,6 @@ public class GtfsParser {
 	}
 
 	private void parseFiles() throws SQLException {
-		mIssueStatement = mConnection
-				.prepareStatement("INSERT INTO _gtfs_issues (filename, type, column, line, message) VALUES (?, ?, ?, ?, ?)");
 		for (int i = 0; i < SCHEMA.length; i += 2) {
 			String[] fields = SCHEMA[i + 1].split(",");
 
@@ -207,7 +173,6 @@ public class GtfsParser {
 
 			parseFile(f, SCHEMA[i], fields);
 		}
-		mIssueStatement.close();
 	}
 
 	private String getList(String[] strs) {
@@ -282,9 +247,15 @@ public class GtfsParser {
 
 				insert.addBatch();
 
+				if (row > 5) {
+					break;
+				}
+				
 				if ((row % 1000) == 0) {
 					insert.executeBatch();
 				}
+				
+				row++;
 			}
 
 			insert.executeBatch();
@@ -293,7 +264,6 @@ public class GtfsParser {
 			insert.close();
 		} catch (SQLException se) {
 		} catch (FileNotFoundException fnfe) {
-			recordFileNotFoundError(f);
 		} catch (IOException ioe) {
 		}
 	}

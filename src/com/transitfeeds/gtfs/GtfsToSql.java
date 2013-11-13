@@ -1,6 +1,8 @@
 package com.transitfeeds.gtfs;
 
 import java.io.File;
+import java.sql.Connection;
+import java.sql.DriverManager;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -14,7 +16,9 @@ public class GtfsToSql {
 		Options options = new Options();
 
 		options.addOption("g", true, "GTFS Path");
-		options.addOption("s", true, "Sqlite Path");
+		options.addOption("s", true, "JDBC Connection");
+		options.addOption("dbusername", true, "Database username");
+		options.addOption("dbpassword", true, "Database password");
 
 		CommandLineParser parser = new GnuParser();
 		CommandLine line = parser.parse(options, args);
@@ -26,18 +30,26 @@ public class GtfsToSql {
 		}
 		
 		if (!line.hasOption("s")) {
-			System.out.println("Sqlite path must be specified");
+			System.err.println("JDBC path must be specified, examples:");
+			System.err.println("\tPostgreSQL: jdbc:postgresql://localhost/dbname");
+			System.err.println("\tSqlite:     jdbc:sqlite:/path/to/db.sqlite");
 			showHelp(options);
 			System.exit(2);
 		}
 
 		String gtfsPath = line.getOptionValue("g");
-		String sqlitePath = line.getOptionValue("s");
-
 		File gtfsFile = new File(gtfsPath);
-		File sqliteFile = new File(sqlitePath);
+
+		String connStr = line.getOptionValue("s");
 		
-		GtfsParser gtfs = new GtfsParser(gtfsFile, sqliteFile);
+		if (connStr.startsWith("jdbc:sqlite:")) {
+			// may not work without this call
+			Class.forName("org.sqlite.JDBC");
+		}
+		
+		Connection connection = DriverManager.getConnection(connStr, line.getOptionValue("dbusername"), line.getOptionValue("dbpassword"));
+
+		GtfsParser gtfs = new GtfsParser(gtfsFile, connection);
 		gtfs.parse();
 	}
 
