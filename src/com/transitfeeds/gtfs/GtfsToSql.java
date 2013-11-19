@@ -54,8 +54,10 @@ public class GtfsToSql {
 		
 		String[] exclude = line.getOptionValues("e");
 		
-		for (int i = 0; i < exclude.length; i++) {
-			gtfs.exclude(exclude[i]);
+		if (exclude != null) {		
+			for (int i = 0; i < exclude.length; i++) {
+				gtfs.exclude(exclude[i]);
+			}
 		}
 		
 		gtfs.parse();
