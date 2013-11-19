@@ -9,7 +9,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import org.mozilla.universalchardet.UniversalDetector;
@@ -20,6 +22,7 @@ public class GtfsParser {
 
 	private File mGtfsFile;
 	private Connection mConnection;
+	private List<String> mExclude = new ArrayList<String>();
 
 	public GtfsParser(File gtfsFile, Connection connection) throws FileNotFoundException, SQLException, Exception {
 		if (!gtfsFile.exists()) {
@@ -169,7 +172,13 @@ public class GtfsParser {
 		for (int i = 0; i < SCHEMA.length; i += 2) {
 			String[] fields = SCHEMA[i + 1].split(",");
 
-			File f = getFile(SCHEMA[i] + ".txt");
+			String filename = SCHEMA[i] + ".txt";
+			
+			if (mExclude.contains(filename)) {
+				continue;
+			}
+			
+			File f = getFile(filename);
 
 			parseFile(f, SCHEMA[i], fields);
 		}
@@ -237,10 +246,9 @@ public class GtfsParser {
 			}
 
 			int row = 0;
+			int i;
 
 			while (csv.readRecord()) {
-				int i;
-
 				for (i = 0; i < numFields; i++) {
 					insert.setString(i + 1, csv.get(indexes[i]));
 				}
@@ -249,6 +257,7 @@ public class GtfsParser {
 
 				if ((row % 10000) == 0) {
 					insert.executeBatch();
+					System.err.println(String.format("%d", row));
 				}
 				
 				row++;
@@ -262,5 +271,9 @@ public class GtfsParser {
 		} catch (FileNotFoundException fnfe) {
 		} catch (IOException ioe) {
 		}
+	}
+
+	public void exclude(String filename) {
+		mExclude.add(filename);
 	}
 }

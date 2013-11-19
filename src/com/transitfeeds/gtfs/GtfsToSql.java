@@ -17,6 +17,7 @@ public class GtfsToSql {
 
 		options.addOption("g", true, "GTFS Path");
 		options.addOption("s", true, "JDBC Connection");
+		options.addOption("e", true, "File(s) to exclude");
 		options.addOption("dbusername", true, "Database username");
 		options.addOption("dbpassword", true, "Database password");
 
@@ -50,6 +51,13 @@ public class GtfsToSql {
 		Connection connection = DriverManager.getConnection(connStr, line.getOptionValue("dbusername"), line.getOptionValue("dbpassword"));
 
 		GtfsParser gtfs = new GtfsParser(gtfsFile, connection);
+		
+		String[] exclude = line.getOptionValues("e");
+		
+		for (int i = 0; i < exclude.length; i++) {
+			gtfs.exclude(exclude[i]);
+		}
+		
 		gtfs.parse();
 	}
 
