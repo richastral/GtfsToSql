@@ -57,7 +57,7 @@ public class GtfsParser {
 
 	private static String[] INDEXES = { 
 			"agency", "agency_id", 
-			"stops", "stop_id", 
+			"stops", "stop_id,stop_code", 
 			"routes", "route_id,agency_id",
 			"trips", "route_id,service_id,trip_id,shape_id",
 			"stop_times", "trip_id,stop_id",
