@@ -18,7 +18,8 @@ public class GtfsToSql {
 
 		options.addOption("g", true, "GTFS Path");
 		options.addOption("s", true, "JDBC Connection");
-		options.addOption("e", true, "File(s) to exclude");
+        options.addOption("e", true, "File(s) to exclude");
+        options.addOption("o", false, "Run optimizer");
 		options.addOption("dbusername", true, "Database username");
 		options.addOption("dbpassword", true, "Database password");
 
@@ -62,8 +63,9 @@ public class GtfsToSql {
 		}
 		
 		gtfs.parse();
-		
-        GtfsOptimizer optimizer = new GtfsOptimizer(connection);
+		if (line.hasOption("o")) {
+		    GtfsOptimizer optimizer = new GtfsOptimizer(connection);
+		}
         optimizer.optimize();
 	}
 
