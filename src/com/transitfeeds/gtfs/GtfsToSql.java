@@ -10,6 +10,7 @@ import org.apache.commons.cli.GnuParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Options;
 
+
 public class GtfsToSql {
 
 	public static void main(String[] args) throws Exception {
@@ -61,6 +62,9 @@ public class GtfsToSql {
 		}
 		
 		gtfs.parse();
+		
+        GtfsOptimizer optimizer = new GtfsOptimizer(connection);
+        optimizer.optimize();
 	}
 
 	public static void showHelp(Options options) {

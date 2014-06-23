@@ -9,271 +9,1136 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.mozilla.universalchardet.UniversalDetector;
+import org.postgresql.copy.CopyIn;
+import org.postgresql.copy.CopyManager;
+import org.postgresql.core.BaseConnection;
 
 import com.csvreader.CsvReader;
 
 public class GtfsParser {
 
-	private File mGtfsFile;
-	private Connection mConnection;
-	private List<String> mExclude = new ArrayList<String>();
+    private File       mGtfsFile;
+    private Connection mConnection;
+    private List<String> mExclude = new ArrayList<String>();
+    
+    private final static String COPY_SEPARATOR = "\t";
 
-	public GtfsParser(File gtfsFile, Connection connection) throws FileNotFoundException, SQLException, Exception {
-		if (!gtfsFile.exists()) {
-			throw new FileNotFoundException("GTFS file not found");
-		}
+    public GtfsParser(File gtfsFile, Connection connection) throws FileNotFoundException, SQLException, Exception {
+        if (!gtfsFile.exists()) {
+            throw new FileNotFoundException("GTFS file not found");
+        }
 
-		if (!gtfsFile.isDirectory()) {
-			throw new Exception("GTFS path must be a directory");
-		}
+        if (!gtfsFile.isDirectory()) {
+            throw new Exception("GTFS path must be a directory");
+        }
 
-		mGtfsFile = gtfsFile;
+        mGtfsFile = gtfsFile;
 
-		mConnection = connection;
-		mConnection.setAutoCommit(false);
-	}
+        mConnection = connection;
+        mConnection.setAutoCommit(false);
+    }
 
-	private static String[] SCHEMA = {
-			"agency", "agency_id,agency_name,agency_url,agency_timezone,agency_lang,agency_phone,agency_fare_url",
-			"stops", "stop_id,stop_code,stop_name,stop_desc,stop_lat,stop_lon,zone_id,stop_url,location_type,parent_station,stop_timezone,wheelchair_boarding",
-			"routes", "route_id,agency_id,route_short_name,route_long_name,route_desc,route_type,route_url,route_color,route_text_color",
-			"trips", "route_id,service_id,trip_id,trip_headsign,trip_short_name,direction_id,block_id,shape_id,wheelchair_accessible",
-			"stop_times", "trip_id,arrival_time,departure_time,stop_id,stop_sequence,stop_headsign,pickup_type,drop_off_type,shape_dist_traveled",
-			"calendar", "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date",
-			"calendar_dates", "service_id,date,exception_type", 
-			"fare_attributes", "fare_id,price,currency_type,payment_method,transfers,transfer_duration", 
-			"fare_rules", "fare_id,route_id,origin_id,destination_id,contains_id,", "shapes",
-			"shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled", 
-			"frequencies", "trip_id,start_time,end_time,headway_secs,exact_times", 
-			"transfers", "from_stop_id,to_stop_id,transfer_type,min_transfer_time", 
-			"feed_info", "feed_publisher_name,feed_publisher_url,feed_lang,feed_start_date,feed_end_date,feed_version" 
-	};
+    private static String[] TABLES = {
+            "agency", "agency_index INTEGER, agency_id TEXT, agency_name TEXT", "agency_index,agency_id",
+            "stops", "stop_index INTEGER, stop_id TEXT, stop_code TEXT, stop_name TEXT, stop_desc TEXT, zone_index INTEGER, zone_id TEXT, stop_lat REAL, stop_lon REAL, location_type INTEGER, parent_station TEXT, parent_station_index INTEGER, wheelchair_boarding INTEGER", "stop_index,stop_id,stop_code,zone_id,zone_index",
+            "routes", "route_index INTEGER, route_id TEXT, agency_index TEXT, route_short_name TEXT, route_long_name TEXT, route_desc TEXT, route_type INTEGeR, route_color TEXT, route_text_color TEXT", "route_index,route_id,agency_index",
+            "trips", "trip_index INTEGER, route_index INTEGER, service_index INTEGER, shape_index INTEGER, trip_id TEXT, trip_headsign TEXT, trip_short_name TEXT, direction_id INTEGER, block_index INTEGER, block_id TEXT, wheelchair_accessible INTEGER", "trip_index,route_index,service_index,shape_index,trip_id,block_index",
+            "stop_times", "stop_index INTEGER, trip_index INTEGER, arrival_time TEXT, arrival_time_secs INTEGER, departure_time TEXT, departure_time_secs INTEGER, stop_sequence INTEGER, last_stop INTEGER", "stop_index,trip_index",
+            "calendar", "service_index INTEGER, service_id TEXT, monday INTEGER, tuesday INTEGER, wednesday INTEGER, thursday INTEGER, friday INTEGER, saturday INTEGER, sunday INTEGER, start_date TEXT, end_date TEXT", "service_index,service_id",
+            "calendar_dates", "service_index INTEGER, date TEXT, exception_type INTEGER", "service_index",
+            "shapes", "shape_index INTEGER, shape_id TEXT, shape_pt_lat REAL, shape_pt_lon REAL, shape_pt_sequence INTEGER", "shape_index,shape_id", 
+            "fare_attributes", "fare_index INTEGER, fare_id TEXT, price TEXT, currency_type TEXT, payment_method TEXT, transfers TEXT, transfer_duration TEXT", "fare_index,fare_id",
+            "fare_rules", "fare_index INTEGER, route_index INTEGER, origin_index INTEGER, destination_index INTEGER, contains_index INTEGER", "fare_index", 
+            "frequencies", "trip_index INTEGER, start_time TEXT, end_time TEXT, headway_secs TEXT, exact_times TEXT", "trip_index",
+            "transfers", "from_stop_index INTEGER, to_stop_index INTEGER, transfer_type TEXT, min_transfer_time TEXT", "from_stop_index,to_stop_index",
+            "feed_info", "feed_publisher_name TEXT, feed_publisher_url TEXT, feed_lang TEXT, feed_start_date TEXT, feed_end_date TEXT, feed_version TEXT", "" 
+    };
 
-	private static String[] INDEXES = { 
-			"agency", "agency_id", 
-			"stops", "stop_id,stop_code", 
-			"routes", "route_id,agency_id",
-			"trips", "route_id,service_id,trip_id,shape_id",
-			"stop_times", "trip_id,stop_id",
-			"calendar", "service_id", 
-			"calendar_dates", "service_id", 
-			"fare_attributes", "fare_id", 
-			"fare_rules", "fare_id", 
-			"shapes", "shape_id", 
-			"frequencies", "trip_id", 
-			"transfers", "from_stop_id,to_stop_id" 
-	};
 
-	public void parse() throws SQLException {
-		createGtfsTables();
+    public void parse() throws Exception {
+        createGtfsTables();
+        parseFiles();
+        deleteOldTrips();
+        createIndexes();
+    }
 
-		parseFiles();
-		createIndexes();
-	}
+    private void deleteOldTrips() throws SQLException {
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
+        Date now = new Date();
 
-	private void createGtfsTables() throws SQLException {
-		ResultSet tables = mConnection.getMetaData().getTables(null, null, null, null);
-		
-		Set<String> tableNames = new HashSet<String>();
-		
-		while (tables.next()) {
-			tableNames.add(tables.getString("TABLE_NAME"));
-		}
-		
-		for (int i = 0; i < SCHEMA.length; i += 2) {
-			String tableName = SCHEMA[i];
-			
-			if (tableNames.contains(tableName)) {
-				Statement stmt = mConnection.createStatement();
-				stmt.execute("DROP TABLE " + tableName);
-				stmt.close();
+        String date = sdf.format(now);
 
-			}
-			
-			String[] fields = SCHEMA[i + 1].split(",");
+        String subquery = String.format("SELECT service_index FROM calendar WHERE end_date < '%s' AND service_index NOT IN (SELECT service_index FROM calendar_dates WHERE date >= '%s')", date, date);
 
-			String query = "CREATE TABLE " + tableName + " (";
+        String[] queries = { 
+                String.format("DELETE FROM stop_times WHERE trip_index IN (SELECT trip_index FROM trips WHERE service_index IN (%s))", subquery),
+                String.format("DELETE from trips WHERE service_index IN (%s)", subquery), 
+                String.format("DELETE FROM calendar_dates WHERE service_index IN (%s)", subquery),
+                String.format("DELETE from calendar WHERE service_index IN (%s)", subquery) 
+        };
 
-			for (int j = 0; j < fields.length; j++) {
-				if (j > 0) {
-					query += ", ";
-				}
-				query += fields[j] + " TEXT";
-			}
+        for (int i = 0; i < queries.length; i++) {
+            System.err.println(queries[i]);
+            Statement st = mConnection.createStatement();
+            st.executeUpdate(queries[i]);
+            st.close();
+        }
 
-			query += ")";
+        mConnection.commit();
+    }
 
-			System.err.println(query);
+    private void createGtfsTables() throws SQLException {
+        ResultSet tables = mConnection.getMetaData().getTables(null, null, null, null);
 
-			Statement stmt = mConnection.createStatement();
-			stmt.execute(query);
-			stmt.close();
-		}
+        Set<String> tableNames = new HashSet<String>();
 
-		mConnection.commit();
-	}
+        while (tables.next()) {
+            tableNames.add(tables.getString("TABLE_NAME"));
+        }
 
-	private void createIndexes() throws SQLException {
-		for (int i = 0; i < INDEXES.length; i += 2) {
-			String table = INDEXES[i];
-			String[] fields = INDEXES[i + 1].split(",");
+        for (int i = 0; i < TABLES.length; i += 3) {
+            String tableName = TABLES[i];
 
-			for (int j = 0; j < fields.length; j++) {
-				String query = String.format("CREATE INDEX %s_%s ON %s (%s)", table, fields[j], table, fields[j]);
-				System.err.println(query);
+            if (tableNames.contains(tableName)) {
+                String query = "DROP TABLE " + tableName;
 
-				Statement stmt = mConnection.createStatement();
-				stmt.execute(query);
-				stmt.close();
-			}
-		}
+                Statement stmt = mConnection.createStatement();
+                System.err.println(query);
+                stmt.execute(query);
+                stmt.close();
+            }
 
-		mConnection.commit();
-	}
+            String query = String.format("CREATE TABLE %s (%s)", tableName, TABLES[i + 1]);
+            System.err.println(query);
 
-	private File getFile(String filename) {
-		return new File(mGtfsFile.getAbsolutePath() + System.getProperty("file.separator") + filename);
-	}
+            Statement stmt = mConnection.createStatement();
+            stmt.execute(query);
+            stmt.close();
+        }
 
-	private CsvReader getCsv(File f) throws FileNotFoundException, IOException {
-		byte[] buf = new byte[4096];
-	    java.io.FileInputStream fis = new java.io.FileInputStream(f);
+        mConnection.commit();
+    }
 
-	    UniversalDetector detector = new UniversalDetector(null);
+    private void createIndexes() throws SQLException {
+        for (int i = 0; i < TABLES.length; i += 3) {
+            if (TABLES[i + 2].length() == 0) {
+                continue;
+            }
+            
+            String table = TABLES[i];
+            String[] fields = TABLES[i + 2].split(",");
 
-	    int nread;
-	    while ((nread = fis.read(buf)) > 0 && !detector.isDone()) {
-	      detector.handleData(buf, 0, nread);
-	    }
+            for (int j = 0; j < fields.length; j++) {
+                String query = String.format("CREATE INDEX %s_%s ON %s (%s)", table, fields[j], table, fields[j]);
+                System.err.println(query);
 
-	    detector.dataEnd();
-	    fis.close();
+                Statement stmt = mConnection.createStatement();
+                stmt.execute(query);
+                stmt.close();
+            }
+        }
 
-	    String encoding = detector.getDetectedCharset();
-	    Charset charset;
-	    if (encoding != null) {
-	    	charset = Charset.forName(encoding);
-	    } else {
-	    	charset = Charset.forName("ISO-8859-1");
-	    }
+        mConnection.commit();
+    }
 
-	    detector.reset();
-	    
-		return new CsvReader(f.getAbsolutePath(), ',', charset);
-	}
+    private File getFile(String filename) {
+        return new File(mGtfsFile.getAbsolutePath() + System.getProperty("file.separator") + filename);
+    }
 
-	private void parseFiles() throws SQLException {
-		for (int i = 0; i < SCHEMA.length; i += 2) {
-			String[] fields = SCHEMA[i + 1].split(",");
+    private CsvReader getCsv(File f) throws FileNotFoundException, IOException {
+        byte[] buf = new byte[4096];
+        java.io.FileInputStream fis = new java.io.FileInputStream(f);
 
-			String filename = SCHEMA[i] + ".txt";
-			
-			if (mExclude.contains(filename)) {
-				continue;
-			}
-			
-			File f = getFile(filename);
+        UniversalDetector detector = new UniversalDetector(null);
 
-			parseFile(f, SCHEMA[i], fields);
-		}
-	}
+        int nread;
+        while ((nread = fis.read(buf)) > 0 && !detector.isDone()) {
+            detector.handleData(buf, 0, nread);
+        }
 
-	private String getList(String[] strs) {
-		String ret = "";
+        detector.dataEnd();
+        fis.close();
 
-		for (int i = 0; i < strs.length; i++) {
-			if (i > 0) {
-				ret += ", ";
-			}
+        String encoding = detector.getDetectedCharset();
+        Charset charset;
+        if (encoding != null) {
+            charset = Charset.forName(encoding);
+        }
+        else {
+            charset = Charset.forName("ISO-8859-1");
+        }
 
-			ret += strs[i];
-		}
+        detector.reset();
 
-		return ret;
-	}
+        return new CsvReader(f.getAbsolutePath(), ',', charset);
+    }
 
-	private String getPlaceholders(int len) {
-		String ret = "";
+    private void parseFiles() throws Exception {
+        for (int i = 0; i < TABLES.length; i += 3) {
+            String filename = TABLES[i] + ".txt";
 
-		for (int i = 0; i < len; i++) {
-			if (i > 0) {
-				ret += ", ";
-			}
-			ret += "?";
-		}
+            if (mExclude.contains(filename)) {
+                continue;
+            }
 
-		return ret;
-	}
+            File f = getFile(filename);
 
-	private void parseFile(File f, String table, String[] fields) {
-		System.err.println("Parsing " + f.getAbsolutePath());
+            try {
+                parseFile(f, TABLES[i]);
+            } catch (Exception e) {
+                // System.err.println(e.toString());
+            }
+        }
+    }
 
-		try {
-			CsvReader csv = getCsv(f);
+    private String getList(String[] strs) {
+        String ret = "";
 
-			csv.readHeaders();
+        for (int i = 0; i < strs.length; i++) {
+            if (i > 0) {
+                ret += ", ";
+            }
 
-			String query = String.format("INSERT INTO %s (%s) VALUES (%s)", table, getList(fields),
-					getPlaceholders(fields.length));
+            ret += strs[i];
+        }
 
-			PreparedStatement insert = mConnection.prepareStatement(query);
+        return ret;
+    }
 
-			int numFields = fields.length;
+    private String getPlaceholders(int len) {
+        String ret = "";
 
-			int[] indexes = new int[numFields];
+        for (int i = 0; i < len; i++) {
+            if (i > 0) {
+                ret += ", ";
+            }
+            ret += "?";
+        }
 
-			String[] headers = csv.getHeaders();
-			
-			
+        return ret;
+    }
 
-			for (int i = 0; i < numFields; i++) {
-				String col = fields[i];
-				indexes[i] = -1;
-				
-				// contains is used in case there's an invalid byte sequence at the start of a file
-				for (int j = 0; j < headers.length; j++) {
-					if (headers[j].contains(col)) {
-						indexes[i] = j;
-						break;
-					}
-				}
-			}
+    private RowProcessor getProcessor(String table) throws Exception {
+        if (table.equals("stop_times")) {
+            return new StopTimesRowProcessor();
+        }
+        else if (table.equals("agency")) {
+            return new AgencyRowProcessor();
+        }
+        else if (table.equals("routes")) {
+            return new RouteRowProcessor();
+        }
+        else if (table.equals("stops")) {
+            return new StopRowProcessor();
+        }
+        else if (table.equals("trips")) {
+            return new TripRowProcessor();
+        }
+        else if (table.equals("calendar")) {
+            return new CalendarRowProcessor();
+        }
+        else if (table.equals("calendar_dates")) {
+            return new CalendarDateRowProcessor();
+        }
+        else if (table.equals("shapes")) {
+            return new ShapeRowProcessor();
+        }
+        else if (table.equals("fare_attributes")) {
+            return new FareAttributesRowProcessor();
+        }
+        else if (table.equals("fare_rules")) {
+            return new FareRulesRowProcessor();
+        }
+        else if (table.equals("frequencies")) {
+            return new FrequenciesRowProcessor();
+        }
+        else if (table.equals("transfers")) {
+            return new TransfersRowProcessor();
+        }
+        else if (table.equals("feed_info")) {
+            return new FeedInfoRowProcessor();
+        }
 
-			int row = 0;
-			int i;
+        throw new Exception("No processor found for " + table);
+    }
 
-			while (csv.readRecord()) {
-				for (i = 0; i < numFields; i++) {
-					insert.setString(i + 1, csv.get(indexes[i]));
-				}
+    private void parseFile(File f, String table) throws Exception {
+        if (!f.exists()) {
+            return;
+        }
+        
+        System.err.println("Parsing " + f.getAbsolutePath());
 
-				insert.addBatch();
+        RowProcessor rp = getProcessor(table);
 
-				if ((row % 10000) == 0) {
-					insert.executeBatch();
-					System.err.println(String.format("%d", row));
-				}
-				
-				row++;
-			}
+        CopyIn copier = null;
 
-			insert.executeBatch();
+        if (mConnection instanceof BaseConnection) {
+            CopyManager cm = new CopyManager((BaseConnection) mConnection);
+            copier = cm.copyIn("COPY " + rp.getTableName() + " (" + getList(rp.getFields()) + ") FROM STDIN WITH DELIMITER '" + COPY_SEPARATOR + "' NULL AS ''");
+        }
 
-			mConnection.commit();
-			insert.close();
-		} catch (SQLException se) {
-		} catch (FileNotFoundException fnfe) {
-		} catch (IOException ioe) {
-		}
-	}
+        try {
+            CsvReader csv = getCsv(f);
+            csv.readHeaders();
 
-	public void exclude(String filename) {
-		mExclude.add(filename);
-	}
+            PreparedStatement insert = null;
+            
+            if (copier == null) {
+                insert = rp.getPreparedStatement(mConnection);
+            }
+
+            int row = 0;
+
+            while (csv.readRecord()) {
+                rp.process(csv, insert, copier);
+                
+                if (insert != null) {
+                    insert.addBatch();
+                }
+
+                if ((row % 10000) == 0) {
+                    if (insert != null) {
+                        insert.executeBatch();
+                    }
+                    
+                    System.err.println(String.format("%d", row));
+                }
+
+                row++;
+            }
+
+            if (insert != null) {
+                insert.executeBatch();
+            }
+            else if (copier != null) {
+                copier.endCopy();
+            }
+
+            mConnection.commit();
+            
+            if (insert != null) {
+                insert.close();
+            }
+        } catch (SQLException se) {
+            System.err.println("SQLException: " + se.getLocalizedMessage());
+        } catch (IOException ioe) {
+            System.err.println("IOException: " + ioe.getLocalizedMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.err.println("Exception: " + e.getLocalizedMessage());
+        }
+    }
+
+    private static Map<String, Integer> mMappedAgencyIds   = new HashMap<String, Integer>();
+    private static Map<String, Integer> mMappedRouteIds   = new HashMap<String, Integer>();
+    private static Map<String, Integer> mMappedServiceIds = new HashMap<String, Integer>();
+    private static Map<String, Integer> mMappedTripIds    = new HashMap<String, Integer>();
+    private static Map<String, Integer> mMappedStopIds    = new HashMap<String, Integer>();
+    private static Map<String, Integer> mMappedZoneIds    = new HashMap<String, Integer>();
+    private static Map<String, Integer> mMappedShapeIds   = new HashMap<String, Integer>();
+    private static Map<String, Integer> mMappedBlockIds   = new HashMap<String, Integer>();
+    private static Map<String, Integer> mMappedFareIds    = new HashMap<String, Integer>();
+
+    public static int getMappedAgencyId(String agencyId) {
+        return getMappedId(mMappedAgencyIds, agencyId);
+    }
+
+    public static int getMappedRouteId(String routeId) {
+        return getMappedId(mMappedRouteIds, routeId);
+    }
+
+    public static int getMappedServiceId(String serviceId) {
+        return getMappedId(mMappedServiceIds, serviceId);
+    }
+
+    public static int getMappedTripId(String tripId) {
+        return getMappedId(mMappedTripIds, tripId);
+    }
+
+    public static int getMappedStopId(String stopId) {
+        return getMappedId(mMappedStopIds, stopId);
+    }
+
+    public static int getMappedZoneId(String zoneId) {
+        return getMappedId(mMappedZoneIds, zoneId);
+    }
+
+    public static int getMappedFareId(String fareId) {
+        return getMappedId(mMappedFareIds, fareId);
+    }
+
+    public static int getMappedShapeId(String shapeId) {
+        return getMappedId(mMappedShapeIds, shapeId);
+    }
+
+    public static int getMappedBlockId(String blockId) {
+        return getMappedId(mMappedBlockIds, blockId);
+    }
+
+    private static int getMappedId(Map<String, Integer> map, String key) {
+        if (key == null || key.length() == 0) {
+            return 0;
+        }
+        
+        Integer ret = map.get(key);
+
+        if (ret == null) {
+            ret = Integer.valueOf(map.size() + 1);
+            map.put(key, ret);
+        }
+
+        return ret.intValue();
+    }
+
+    private abstract class RowProcessor {
+        
+        public abstract void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException;
+        
+        public abstract String getTableName();
+        
+        public abstract String[] getFields();
+
+        final public PreparedStatement getPreparedStatement(Connection connection) throws SQLException {
+            String[] fields = getFields();
+            
+            String query = String.format("INSERT INTO %s (%s) VALUES (%s)", getTableName(), getList(fields), getPlaceholders(fields.length));
+            return connection.prepareStatement(query);
+        }
+    }
+
+    private class AgencyRowProcessor extends RowProcessor {
+
+        @Override
+        public String[] getFields() {
+            String fields[] = { "agency_index", "agency_id", "agency_name" };
+            return fields;
+        }
+        
+        @Override
+        public String getTableName() {
+            return "agency";
+        }
+        
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+            int i = 0;
+
+            String agencyId = csv.get("agency_id");
+            
+            if (copier == null) {
+                
+                insert.setInt(++i, getMappedAgencyId(agencyId));
+                insert.setString(++i, agencyId);
+                insert.setString(++i, csv.get("agency_name"));
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(getMappedAgencyId(agencyId));
+                row.add(agencyId);
+                row.add(csv.get("agency_name"));
+                row.write(copier, COPY_SEPARATOR);
+            }
+        }
+    }
+
+    private class RouteRowProcessor extends RowProcessor {
+        @Override
+        public String[] getFields() {
+            String fields[] = { "route_index", "route_id", "agency_index", "route_short_name", "route_long_name", "route_desc", "route_type", "route_color", "route_text_color" };
+            return fields;
+        }
+        
+        @Override
+        public String getTableName() {
+            return "routes";
+        }
+
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+            int i = 0;
+
+            String routeId = csv.get("route_id");
+
+            if (copier == null) {
+                insert.setInt(++i, getMappedRouteId(routeId));
+                insert.setString(++i, routeId);
+                insert.setInt(++i, getMappedAgencyId(csv.get("agency_id")));
+                insert.setString(++i, csv.get("route_short_name"));
+                insert.setString(++i, csv.get("route_long_name"));
+                insert.setString(++i, csv.get("route_desc"));
+                insert.setInt(++i, Integer.valueOf(csv.get("route_type")));
+                insert.setString(++i, csv.get("route_color"));
+                insert.setString(++i, csv.get("route_text_color"));
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(getMappedRouteId(routeId));
+                row.add(routeId);
+                row.add(csv.get("agency_id"));
+                row.add(csv.get("route_short_name"));
+                row.add(csv.get("route_long_name"));
+                row.add(csv.get("route_desc"));
+                row.add(Integer.valueOf(csv.get("route_type")));
+                row.add(csv.get("route_color"));
+                row.add(csv.get("route_text_color"));
+                
+                row.write(copier, COPY_SEPARATOR);
+            }
+        }
+
+    }
+
+    private class StopRowProcessor extends RowProcessor {
+        @Override
+        public String[] getFields() {
+            String fields[] = { "stop_index", "stop_id", "stop_code", "stop_name", "stop_desc", "zone_id", "zone_index", "stop_lat", "stop_lon", "location_type", "parent_station", "parent_station_index",
+                    "wheelchair_boarding" };
+            return fields;
+        }
+        
+        @Override
+        public String getTableName() {
+            return "stops";
+        }
+
+        private int stopIdIdx;
+        private int stopCodeIdx;
+        private int stopNameIdx;
+        private int stopDescIdx;
+        private int zoneIdIdx;
+        private int stopLatIdx;
+        private int stopLonIdx;
+        private int locationTypeIdx;
+        private int parentStationIdx;
+        private int wheelchairIdx;
+
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+            if (csv.getCurrentRecord() == 0) {
+                stopIdIdx = csv.getIndex("stop_id");
+                stopCodeIdx = csv.getIndex("stop_code");
+                stopNameIdx = csv.getIndex("stop_name");
+                stopDescIdx = csv.getIndex("stop_desc");
+                zoneIdIdx = csv.getIndex("zone_id");
+                stopLatIdx = csv.getIndex("stop_lat");
+                stopLonIdx = csv.getIndex("stop_lon");
+                locationTypeIdx = csv.getIndex("location_type");
+                parentStationIdx = csv.getIndex("parent_station");
+                wheelchairIdx = csv.getIndex("wheelchair_boarding");
+            }
+
+            int i = 0;
+
+            String stopId = csv.get(stopIdIdx);
+            String parentId = csv.get(parentStationIdx);
+            String zoneId = csv.get(zoneIdIdx);
+
+            int locationType = 0;
+
+            try {
+                locationType = Integer.valueOf(csv.get(locationTypeIdx));
+            } catch (Exception e) {
+
+            }
+
+            int wheelchair = 0;
+
+            try {
+                wheelchair = Integer.valueOf(csv.get(wheelchairIdx));
+            } catch (Exception e) {
+
+            }
+
+            if (copier == null) {
+                insert.setInt(++i, getMappedStopId(stopId));
+                insert.setString(++i, stopId);
+                insert.setString(++i, csv.get(stopCodeIdx));
+                insert.setString(++i, csv.get(stopNameIdx));
+                insert.setString(++i, csv.get(stopDescIdx));
+                insert.setString(++i, zoneId);
+                insert.setInt(++i, getMappedZoneId(zoneId));
+    
+                insert.setDouble(++i, Double.valueOf(csv.get(stopLatIdx)));
+                insert.setDouble(++i, Double.valueOf(csv.get(stopLonIdx)));
+    
+                insert.setInt(++i, locationType);
+    
+                if (parentId != null && parentId.length() > 0) {
+                    insert.setString(++i, parentId);
+                    insert.setInt(++i, getMappedStopId(parentId));
+                }
+                else {
+                    insert.setNull(++i, Types.VARCHAR);
+                    insert.setNull(++i, Types.INTEGER);
+                }
+    
+                insert.setInt(++i, wheelchair);
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(getMappedStopId(stopId));
+                row.add(stopId);
+                row.add(csv.get(stopCodeIdx));
+                row.add(csv.get(stopNameIdx));
+                row.add(csv.get(stopDescIdx));
+                row.add(zoneId);
+                row.add(getMappedZoneId(zoneId));
+                row.add(Double.valueOf(csv.get(stopLatIdx)));
+                row.add(Double.valueOf(csv.get(stopLonIdx)));
+                row.add(locationType);
+                
+                if (parentId != null && parentId.length() > 0) {
+                    row.add(parentId);
+                    row.add(getMappedStopId(parentId));
+                }
+                else {
+                    row.addNull(2);
+                }
+    
+                row.add(wheelchair);
+                
+                row.write(copier, COPY_SEPARATOR);
+            }
+        }
+
+    }
+
+    private class TripRowProcessor extends RowProcessor {
+        
+        @Override
+        public String[] getFields() {
+            String fields[] = { "trip_index", "trip_id", "route_index", "service_index", "shape_index", "block_index", "block_id", "trip_headsign", "trip_short_name", "direction_id",
+            "wheelchair_accessible" };
+            return fields;
+        }
+        
+        @Override
+        public String getTableName() {
+            return "trips";
+        }
+
+        private int tripIdIdx;
+        private int routeIdIdx;
+        private int serviceIdIdx;
+        private int shapeIdIdx;
+        private int blockIdIdx;
+        private int tripHeadsignIdx;
+        private int tripShortNameIdx;
+        private int directionIdIdx;
+        private int wheelchairIdx;
+
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+
+            if (csv.getCurrentRecord() == 0) {
+                tripIdIdx = csv.getIndex("trip_id");
+                routeIdIdx = csv.getIndex("route_id");
+                serviceIdIdx = csv.getIndex("service_id");
+                blockIdIdx = csv.getIndex("block_id");
+                shapeIdIdx = csv.getIndex("shape_id");
+                tripHeadsignIdx = csv.getIndex("trip_headsign");
+                tripShortNameIdx = csv.getIndex("trip_short_name");
+                directionIdIdx = csv.getIndex("direction_id");
+                wheelchairIdx = csv.getIndex("wheelchair_accessible");
+            }
+
+            int i = 0;
+
+            String tripId = csv.get(tripIdIdx);
+            String routeId = csv.get(routeIdIdx);
+            String serviceId = csv.get(serviceIdIdx);
+            String shapeId = csv.get(shapeIdIdx);
+            String blockId = csv.get(blockIdIdx);
+
+            int directionId = 0;
+
+            try {
+                directionId = Integer.valueOf(csv.get(directionIdIdx));
+            } catch (Exception e) {
+            }
+
+            int wheelchair = 0;
+
+            try {
+                wheelchair = Integer.valueOf(csv.get(wheelchairIdx));
+            } catch (Exception e) {
+            }
+
+            if (copier == null) {
+                insert.setInt(++i, getMappedTripId(tripId));
+                insert.setString(++i, tripId);
+                insert.setInt(++i, getMappedRouteId(routeId));
+                insert.setInt(++i, getMappedServiceId(serviceId));
+                insert.setInt(++i, getMappedShapeId(shapeId));
+                insert.setInt(++i, getMappedBlockId(blockId));
+                insert.setString(++i, blockId);
+                insert.setString(++i, csv.get(tripHeadsignIdx));
+                insert.setString(++i, csv.get(tripShortNameIdx));
+                insert.setInt(++i, directionId);
+                insert.setInt(++i, wheelchair);
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(getMappedTripId(tripId));
+                row.add(tripId);
+                row.add(getMappedRouteId(routeId));
+                row.add(getMappedServiceId(serviceId));
+                row.add(getMappedShapeId(shapeId));
+                row.add(getMappedBlockId(blockId));
+                row.add(blockId);
+                row.add(csv.get(tripHeadsignIdx));
+                row.add(csv.get(tripShortNameIdx));
+                row.add(directionId);
+                row.add(wheelchair);
+                
+                row.write(copier, COPY_SEPARATOR);
+            }
+        }
+
+    }
+
+    private class CalendarRowProcessor extends RowProcessor {
+        @Override
+        public String[] getFields() {
+            String fields[] = { "service_index", "service_id", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "start_date", "end_date" };
+            return fields;
+        }
+        
+        @Override
+        public String getTableName() {
+            return "calendar";
+        }
+
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+            int i = 0;
+
+            String serviceId = csv.get("service_id");
+            
+            if (copier == null) {
+                insert.setInt(++i, getMappedServiceId(serviceId));
+                insert.setString(++i, serviceId);
+    
+                insert.setInt(++i, csv.get("monday").equals("1") ? 1 : 0);
+                insert.setInt(++i, csv.get("tuesday").equals("1") ? 1 : 0);
+                insert.setInt(++i, csv.get("wednesday").equals("1") ? 1 : 0);
+                insert.setInt(++i, csv.get("thursday").equals("1") ? 1 : 0);
+                insert.setInt(++i, csv.get("friday").equals("1") ? 1 : 0);
+                insert.setInt(++i, csv.get("saturday").equals("1") ? 1 : 0);
+                insert.setInt(++i, csv.get("sunday").equals("1") ? 1 : 0);
+    
+                insert.setString(++i, csv.get("start_date"));
+                insert.setString(++i, csv.get("end_date"));
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(getMappedServiceId(serviceId));
+                row.add(serviceId);
+    
+                row.add(csv.get("monday").equals("1") ? 1 : 0);
+                row.add(csv.get("tuesday").equals("1") ? 1 : 0);
+                row.add(csv.get("wednesday").equals("1") ? 1 : 0);
+                row.add(csv.get("thursday").equals("1") ? 1 : 0);
+                row.add(csv.get("friday").equals("1") ? 1 : 0);
+                row.add(csv.get("saturday").equals("1") ? 1 : 0);
+                row.add(csv.get("sunday").equals("1") ? 1 : 0);
+    
+                row.add(csv.get("start_date"));
+                row.add(csv.get("end_date"));
+                
+                row.write(copier, COPY_SEPARATOR);
+            }
+        }
+
+    }
+
+    private class CalendarDateRowProcessor extends RowProcessor {
+        
+        @Override
+        public String[] getFields() {
+            String fields[] = { "service_index", "date", "exception_type" };
+            return fields;
+        }
+
+        @Override
+        public String getTableName() {
+            return "calendar_dates";
+        }
+
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+            int i = 0;
+
+            String serviceId = csv.get("service_id");
+            
+            if (copier == null) {
+                insert.setInt(++i, getMappedServiceId(serviceId));
+                insert.setString(++i, csv.get("date"));
+                insert.setInt(++i, Integer.valueOf(csv.get("exception_type")));
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(getMappedServiceId(serviceId));
+                row.add(csv.get("date"));
+                row.add(Integer.valueOf(csv.get("exception_type")));                
+                row.write(copier, COPY_SEPARATOR);
+            }
+        }
+
+    }
+
+    private class StopTimesRowProcessor extends RowProcessor {
+        
+        @Override
+        public String[] getFields() {
+            String fields[] = { "trip_index", "stop_index", "arrival_time", "arrival_time_secs", "departure_time", "departure_time_secs", "stop_sequence", "last_stop" };
+            return fields;
+        }
+        
+        @Override
+        public String getTableName() {
+            return "stop_times";
+        }
+
+        private int tripIdIdx;
+        private int arrivalTimeIdx;
+        private int departureTimeIdx;
+        private int stopIdIdx;
+        private int stopSequenceIdx;
+
+        private int getSeconds(String hms, long row) {
+            String parts[] = hms.split("\\:", 3);
+            
+            if (parts.length != 3) {
+                return -1;
+            }
+            
+            return Integer.valueOf(parts[0]) * 3600 + Integer.valueOf(parts[1]) * 60 + Integer.valueOf(parts[2]);
+        }
+
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+
+            long rowNumber = csv.getCurrentRecord();
+            
+            if (rowNumber == 0) {
+                tripIdIdx = csv.getIndex("trip_id");
+                arrivalTimeIdx = csv.getIndex("arrival_time");
+                departureTimeIdx = csv.getIndex("departure_time");
+                stopIdIdx = csv.getIndex("stop_id");
+                stopSequenceIdx = csv.getIndex("stop_sequence");
+            }
+
+            int i = 0;
+
+            String tripId = csv.get(tripIdIdx);
+            String stopId = csv.get(stopIdIdx);
+            String arrivalTime = csv.get(arrivalTimeIdx);
+            String departureTime = csv.get(departureTimeIdx);
+
+            if (copier == null) {
+                insert.setInt(++i, getMappedTripId(tripId));
+                insert.setInt(++i, getMappedStopId(stopId));
+    
+                insert.setString(++i, arrivalTime);
+                
+                int secs = getSeconds(arrivalTime, rowNumber);
+                
+                if (secs < 0) {
+                    insert.setNull(++i, java.sql.Types.INTEGER);
+                }
+                else {                
+                    insert.setInt(++i, secs);
+                }
+    
+                insert.setString(++i, departureTime);
+                
+                secs = getSeconds(departureTime, rowNumber);
+                if (secs < 0) {
+                    insert.setNull(++i, java.sql.Types.INTEGER);
+                }
+                else {                
+                    insert.setInt(++i, secs);
+                }
+    
+                insert.setInt(++i, Integer.valueOf(csv.get(stopSequenceIdx)));
+    
+                insert.setInt(++i, 0);
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(getMappedTripId(tripId));
+                row.add(getMappedStopId(stopId));
+                row.add(arrivalTime);
+                row.add(getSeconds(arrivalTime, rowNumber));
+                row.add(departureTime);
+                row.add(getSeconds(departureTime, rowNumber));
+                row.add(Integer.valueOf(csv.get(stopSequenceIdx)));
+                row.add(0);
+                
+                row.write(copier, COPY_SEPARATOR);
+            }
+        }
+    }
+
+    private class ShapeRowProcessor extends RowProcessor {
+        @Override
+        public String[] getFields() {
+            String fields[] = { "shape_index", "shape_id", "shape_pt_lat", "shape_pt_lon", "shape_pt_sequence" };
+            return fields;
+        }
+        
+        @Override
+        public String getTableName() {
+            return "shapes";
+        }
+
+        private int shapeIdIdx;
+        private int latIdx;
+        private int lonIdx;
+        private int sequenceIdx;
+
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+
+            if (csv.getCurrentRecord() == 0) {
+                shapeIdIdx = csv.getIndex("shape_id");
+                latIdx = csv.getIndex("shape_pt_lat");
+                lonIdx = csv.getIndex("shape_pt_lon");
+                sequenceIdx = csv.getIndex("shape_pt_sequence");
+            }
+
+            int i = 0;
+
+            String shapeId = csv.get(shapeIdIdx);
+            
+            if (copier == null) {
+                insert.setInt(++i, getMappedShapeId(shapeId));
+                insert.setString(++i, shapeId);
+    
+                insert.setDouble(++i, Double.valueOf(csv.get(latIdx)));
+                insert.setDouble(++i, Double.valueOf(csv.get(lonIdx)));
+    
+                insert.setInt(++i, Integer.valueOf(csv.get(sequenceIdx)));
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(getMappedShapeId(shapeId));
+                row.add(shapeId);
+    
+                row.add(Double.valueOf(csv.get(latIdx)));
+                row.add(Double.valueOf(csv.get(lonIdx)));
+    
+                row.add(Integer.valueOf(csv.get(sequenceIdx)));
+                
+                row.write(copier, COPY_SEPARATOR);
+            }
+        }
+    }
+    
+    private class FareAttributesRowProcessor extends RowProcessor {
+
+        @Override
+        public String[] getFields() {
+            String fields[] = { "fare_index", "fare_id", "price", "currency_type", "payment_method", "transfers", "transfer_duration" };
+            return fields;
+        }
+
+        @Override
+        public String getTableName() {
+            return "fare_attributes";
+        }
+
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+            int i = 0;
+            
+            String fareId = csv.get("fare_id");
+            
+            if (copier == null) {
+                insert.setInt(++i, getMappedFareId(fareId));
+                insert.setString(++i, fareId);
+                insert.setString(++i, csv.get("price"));
+                insert.setString(++i, csv.get("currency_type"));
+                insert.setString(++i, csv.get("payment_method"));
+                insert.setString(++i, csv.get("transfers"));
+                insert.setString(++i, csv.get("transfer_duration"));
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(getMappedFareId(fareId));
+                row.add(fareId);
+                row.add(csv.get("price"));
+                row.add(csv.get("currency_type"));
+                row.add(csv.get("payment_method"));
+                row.add(csv.get("transfers"));
+                row.add(csv.get("transfer_duration"));
+                
+                row.write(copier, COPY_SEPARATOR);
+            }            
+        }
+    }
+    
+    private class FareRulesRowProcessor extends RowProcessor {
+        @Override
+        public String[] getFields() {
+            String fields[] = { "fare_index", "route_index", "origin_index", "destination_index", "contains_index" };
+            return fields;
+        }
+
+        @Override
+        public String getTableName() {
+            return "fare_rules";
+        }
+
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+            
+            if (copier == null) {
+                int i = 0;
+                insert.setInt(++i, getMappedFareId(csv.get("fare_id")));
+                insert.setInt(++i, getMappedRouteId(csv.get("route_id")));
+                insert.setInt(++i, getMappedZoneId(csv.get("origin_id")));
+                insert.setInt(++i, getMappedZoneId(csv.get("destination_id")));
+                insert.setInt(++i, getMappedZoneId(csv.get("contains_id")));
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(getMappedFareId(csv.get("fare_id")));
+                row.add(getMappedRouteId(csv.get("route_id")));
+                row.add(getMappedZoneId(csv.get("origin_id")));
+                row.add(getMappedZoneId(csv.get("destination_id")));
+                row.add(getMappedZoneId(csv.get("contains_id")));
+                
+                row.write(copier, COPY_SEPARATOR);
+            }
+        }
+    }
+    
+    private class FrequenciesRowProcessor extends RowProcessor {
+        @Override
+        public String[] getFields() {
+            String fields[] = { "trip_index", "start_time", "end_time", "headway_secs", "exact_times" };
+            return fields;
+        }
+
+        @Override
+        public String getTableName() {
+            return "frequencies";
+        }
+
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+            if (copier == null) {
+                int i = 0;
+                insert.setInt(++i, getMappedTripId(csv.get("trip_id")));
+                insert.setString(++i, csv.get("start_time"));
+                insert.setString(++i, csv.get("end_time"));
+                insert.setString(++i, csv.get("headway_secs"));
+                insert.setString(++i, csv.get("exact_times"));
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(getMappedTripId(csv.get("trip_id")));
+                row.add(csv.get("start_time"));
+                row.add(csv.get("end_time"));
+                row.add(csv.get("headway_secs"));
+                row.add(csv.get("exact_times"));
+                
+                row.write(copier, COPY_SEPARATOR);
+            }
+            
+        }
+    }
+    
+    private class TransfersRowProcessor extends RowProcessor {
+//        "transfers", "from_stop_index INTEGER, to_stop_index INTEGER, transfer_type TEXT, min_transfer_time TEXT", "from_stop_index,to_stop_index",
+        
+        @Override
+        public String[] getFields() {
+            String fields[] = { "from_stop_index", "to_stop_index", "transfer_type", "min_transfer_time" };
+            return fields;
+        }
+
+        @Override
+        public String getTableName() {
+            return "transfers";
+        }
+
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+            if (copier == null) {
+                int i = 0;
+                insert.setInt(++i, getMappedStopId(csv.get("from_stop_id")));
+                insert.setInt(++i, getMappedStopId(csv.get("to_stop_id")));
+                insert.setString(++i, csv.get("transfer_type"));
+                insert.setString(++i, csv.get("min_transfer_time"));
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(getMappedStopId(csv.get("from_stop_id")));
+                row.add(getMappedStopId(csv.get("to_stop_id")));
+                row.add(csv.get("transfer_type"));
+                row.add(csv.get("min_transfer_time"));
+                
+                row.write(copier, COPY_SEPARATOR);
+            }
+        }
+    }
+    
+    private class FeedInfoRowProcessor extends RowProcessor {
+//        "feed_info", "feed_publisher_name TEXT, feed_publisher_url TEXT, feed_lang TEXT, feed_start_date TEXT, feed_end_date TEXT, feed_version TEXT", "" 
+        
+        @Override
+        public String[] getFields() {
+            String fields[] = { "feed_publisher_name", "feed_publisher_url", "feed_lang", "feed_start_date", "feed_end_date", "feed_version" };
+            return fields;
+        }
+
+        @Override
+        public String getTableName() {
+            return "feed_info";
+        }
+
+        @Override
+        public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
+            if (copier == null) {
+                int i = 0;
+                insert.setString(++i, csv.get("feed_publisher_name"));
+                insert.setString(++i, csv.get("feed_publisher_url"));
+                insert.setString(++i, csv.get("feed_lang"));
+                insert.setString(++i, csv.get("feed_start_date"));
+                insert.setString(++i, csv.get("feed_end_date"));
+                insert.setString(++i, csv.get("feed_version"));
+            }
+            else {
+                DataCopierRow row = new DataCopierRow();
+                row.add(csv.get("feed_publisher_name"));
+                row.add(csv.get("feed_publisher_url"));
+                row.add(csv.get("feed_lang"));
+                row.add(csv.get("feed_start_date"));
+                row.add(csv.get("feed_end_date"));
+                row.add(csv.get("feed_version"));
+                
+                row.write(copier, COPY_SEPARATOR);
+            }
+        }
+    }
+  
+    
+    public void exclude(String filename) {
+        mExclude.add(filename);
+    }
 }
