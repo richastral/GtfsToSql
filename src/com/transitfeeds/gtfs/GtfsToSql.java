@@ -65,8 +65,8 @@ public class GtfsToSql {
 		gtfs.parse();
 		if (line.hasOption("o")) {
 		    GtfsOptimizer optimizer = new GtfsOptimizer(connection);
-		}
-        optimizer.optimize();
+		    optimizer.optimize();
+        }
 	}
 
 	public static void showHelp(Options options) {
