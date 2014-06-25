@@ -54,10 +54,10 @@ public class GtfsParser {
             "stops", "stop_index INTEGER, stop_id TEXT, stop_code TEXT, stop_name TEXT, stop_desc TEXT, zone_index INTEGER, zone_id TEXT, stop_lat REAL, stop_lon REAL, location_type INTEGER, parent_station TEXT, parent_station_index INTEGER, wheelchair_boarding INTEGER", "stop_index,stop_id,stop_code,zone_id,zone_index",
             "routes", "route_index INTEGER, route_id TEXT, agency_id TEXT, route_short_name TEXT, route_long_name TEXT, route_desc TEXT, route_type INTEGeR, route_color TEXT, route_text_color TEXT", "route_index,route_id,agency_id",
             "trips", "trip_index INTEGER, route_index INTEGER, service_index INTEGER, shape_index INTEGER, trip_id TEXT, trip_headsign TEXT, trip_short_name TEXT, direction_id INTEGER, block_index INTEGER, block_id TEXT, wheelchair_accessible INTEGER", "trip_index,route_index,service_index,shape_index,trip_id,block_index",
-            "stop_times", "stop_index INTEGER, trip_index INTEGER, arrival_time TEXT, arrival_time_secs INTEGER, departure_time TEXT, departure_time_secs INTEGER, stop_sequence INTEGER, last_stop INTEGER", "stop_index,trip_index",
+            "stop_times", "stop_index INTEGER, trip_index INTEGER, arrival_time TEXT, arrival_time_secs INTEGER, departure_time TEXT, departure_time_secs INTEGER, stop_sequence INTEGER, last_stop INTEGER, shape_dist_traveled REAL", "stop_index,trip_index",
             "calendar", "service_index INTEGER, service_id TEXT, monday INTEGER, tuesday INTEGER, wednesday INTEGER, thursday INTEGER, friday INTEGER, saturday INTEGER, sunday INTEGER, start_date TEXT, end_date TEXT", "service_index,service_id",
             "calendar_dates", "service_index INTEGER, date TEXT, exception_type INTEGER", "service_index",
-            "shapes", "shape_index INTEGER, shape_id TEXT, shape_pt_lat REAL, shape_pt_lon REAL, shape_pt_sequence INTEGER", "shape_index,shape_id", 
+            "shapes", "shape_index INTEGER, shape_id TEXT, shape_pt_lat REAL, shape_pt_lon REAL, shape_pt_sequence INTEGER, shape_dist_traveled REAL", "shape_index,shape_id", 
             "fare_attributes", "fare_index INTEGER, fare_id TEXT, price TEXT, currency_type TEXT, payment_method TEXT, transfers TEXT, transfer_duration TEXT", "fare_index,fare_id",
             "fare_rules", "fare_index INTEGER, route_index INTEGER, origin_index INTEGER, destination_index INTEGER, contains_index INTEGER", "fare_index", 
             "frequencies", "trip_index INTEGER, start_time TEXT, end_time TEXT, headway_secs TEXT, exact_times TEXT", "trip_index",
@@ -794,7 +794,7 @@ public class GtfsParser {
         
         @Override
         public String[] getFields() {
-            String fields[] = { "trip_index", "stop_index", "arrival_time", "arrival_time_secs", "departure_time", "departure_time_secs", "stop_sequence", "last_stop" };
+            String fields[] = { "trip_index", "stop_index", "arrival_time", "arrival_time_secs", "departure_time", "departure_time_secs", "stop_sequence", "last_stop", "shape_dist_traveled" };
             return fields;
         }
         
@@ -808,6 +808,7 @@ public class GtfsParser {
         private int departureTimeIdx;
         private int stopIdIdx;
         private int stopSequenceIdx;
+        private int shapeDistTraveledIdx;
 
         private int getSeconds(String hms, long row) {
             String parts[] = hms.split("\\:", 3);
@@ -830,6 +831,7 @@ public class GtfsParser {
                 departureTimeIdx = csv.getIndex("departure_time");
                 stopIdIdx = csv.getIndex("stop_id");
                 stopSequenceIdx = csv.getIndex("stop_sequence");
+                shapeDistTraveledIdx = csv.getIndex("shape_dist_traveled");
             }
 
             int i = 0;
@@ -838,6 +840,8 @@ public class GtfsParser {
             String stopId = csv.get(stopIdIdx);
             String arrivalTime = csv.get(arrivalTimeIdx);
             String departureTime = csv.get(departureTimeIdx);
+            
+            String shapeDistTraveled = csv.get(shapeDistTraveledIdx);
 
             if (copier == null) {
                 insert.setInt(++i, getMappedTripId(tripId));
@@ -867,6 +871,13 @@ public class GtfsParser {
                 insert.setInt(++i, Integer.valueOf(csv.get(stopSequenceIdx)));
     
                 insert.setInt(++i, 0);
+                
+                if (shapeDistTraveled != null && shapeDistTraveled.length() > 0) {
+                    insert.setDouble(++i, Double.valueOf(shapeDistTraveled));
+                }
+                else {
+                    insert.setNull(++i, java.sql.Types.DOUBLE);
+                }
             }
             else {
                 DataCopierRow row = new DataCopierRow();
@@ -879,6 +890,13 @@ public class GtfsParser {
                 row.add(Integer.valueOf(csv.get(stopSequenceIdx)));
                 row.add(0);
                 
+                if (shapeDistTraveled != null && shapeDistTraveled.length() > 0) {
+                    row.add(Double.valueOf(shapeDistTraveled));
+                }
+                else {
+                    row.addNull();
+                }
+                
                 row.write(copier, COPY_SEPARATOR);
             }
         }
@@ -887,7 +905,7 @@ public class GtfsParser {
     private class ShapeRowProcessor extends RowProcessor {
         @Override
         public String[] getFields() {
-            String fields[] = { "shape_index", "shape_id", "shape_pt_lat", "shape_pt_lon", "shape_pt_sequence" };
+            String fields[] = { "shape_index", "shape_id", "shape_pt_lat", "shape_pt_lon", "shape_pt_sequence", "shape_dist_traveled" };
             return fields;
         }
         
@@ -900,6 +918,7 @@ public class GtfsParser {
         private int latIdx;
         private int lonIdx;
         private int sequenceIdx;
+        private int shapeDistTraveledIdx;
 
         @Override
         public void process(CsvReader csv, PreparedStatement insert, CopyIn copier) throws SQLException, IOException {
@@ -909,11 +928,13 @@ public class GtfsParser {
                 latIdx = csv.getIndex("shape_pt_lat");
                 lonIdx = csv.getIndex("shape_pt_lon");
                 sequenceIdx = csv.getIndex("shape_pt_sequence");
+                shapeDistTraveledIdx = csv.getIndex("shape_dist_traveled");
             }
 
             int i = 0;
 
             String shapeId = csv.get(shapeIdIdx);
+            String shapeDistTraveled = csv.get(shapeDistTraveledIdx);
             
             if (copier == null) {
                 insert.setInt(++i, getMappedShapeId(shapeId));
@@ -923,6 +944,13 @@ public class GtfsParser {
                 insert.setDouble(++i, Double.valueOf(csv.get(lonIdx)));
     
                 insert.setInt(++i, Integer.valueOf(csv.get(sequenceIdx)));
+                
+                if (shapeDistTraveled != null && shapeDistTraveled.length() > 0) {
+                    insert.setDouble(++i, Double.valueOf(shapeDistTraveled));
+                }
+                else {
+                    insert.setNull(++i, java.sql.Types.DOUBLE);
+                }
             }
             else {
                 DataCopierRow row = new DataCopierRow();
@@ -934,6 +962,13 @@ public class GtfsParser {
     
                 row.add(Integer.valueOf(csv.get(sequenceIdx)));
                 
+                if (shapeDistTraveled != null && shapeDistTraveled.length() > 0) {
+                    row.add(Double.valueOf(shapeDistTraveled));
+                }
+                else {
+                    row.addNull();
+                }
+
                 row.write(copier, COPY_SEPARATOR);
             }
         }
