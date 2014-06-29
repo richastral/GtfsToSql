@@ -50,9 +50,9 @@ public class GtfsParser {
     }
 
     private static String[] TABLES = {
-            "agency", "agency_id TEXT, agency_name TEXT", "agency_id",
+            "agency", "agency_id TEXT, agency_name TEXT, agency_timezone TEXT", "agency_id",
             "stops", "stop_index INTEGER, stop_id TEXT, stop_code TEXT, stop_name TEXT, stop_desc TEXT, zone_index INTEGER, zone_id TEXT, stop_lat REAL, stop_lon REAL, location_type INTEGER, parent_station TEXT, parent_station_index INTEGER, wheelchair_boarding INTEGER", "stop_index,stop_id,stop_code,zone_id,zone_index",
-            "routes", "route_index INTEGER, route_id TEXT, agency_id TEXT, route_short_name TEXT, route_long_name TEXT, route_desc TEXT, route_type INTEGeR, route_color TEXT, route_text_color TEXT", "route_index,route_id,agency_id",
+            "routes", "route_index INTEGER, route_id TEXT, agency_id TEXT, route_short_name TEXT, route_long_name TEXT, route_desc TEXT, route_type INTEGER, route_color TEXT, route_text_color TEXT", "route_index,route_id,agency_id",
             "trips", "trip_index INTEGER, route_index INTEGER, service_index INTEGER, shape_index INTEGER, trip_id TEXT, trip_headsign TEXT, trip_short_name TEXT, direction_id INTEGER, block_index INTEGER, block_id TEXT, wheelchair_accessible INTEGER", "trip_index,route_index,service_index,shape_index,trip_id,block_index",
             "stop_times", "stop_index INTEGER, trip_index INTEGER, arrival_time TEXT, arrival_time_secs INTEGER, departure_time TEXT, departure_time_secs INTEGER, stop_sequence INTEGER, last_stop INTEGER, shape_dist_traveled REAL", "stop_index,trip_index",
             "calendar", "service_index INTEGER, service_id TEXT, monday INTEGER, tuesday INTEGER, wednesday INTEGER, thursday INTEGER, friday INTEGER, saturday INTEGER, sunday INTEGER, start_date TEXT, end_date TEXT", "service_index,service_id",
@@ -416,7 +416,7 @@ public class GtfsParser {
 
         @Override
         public String[] getFields() {
-            String fields[] = { "agency_id", "agency_name" };
+            String fields[] = { "agency_id", "agency_name", "agency_timezone" };
             return fields;
         }
         
@@ -434,11 +434,13 @@ public class GtfsParser {
             if (copier == null) {
                 insert.setString(++i, agencyId);
                 insert.setString(++i, csv.get("agency_name"));
+                insert.setString(++i, csv.get("agency_timezone"));
             }
             else {
                 DataCopierRow row = new DataCopierRow();
                 row.add(agencyId);
                 row.add(csv.get("agency_name"));
+                row.add(csv.get("agency_timezone"));
                 row.write(copier, COPY_SEPARATOR);
             }
         }
