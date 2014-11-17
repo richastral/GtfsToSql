@@ -1,8 +1,10 @@
 package com.transitfeeds.gtfs;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.commons.io.input.BOMInputStream;
 import org.mozilla.universalchardet.UniversalDetector;
 import org.postgresql.copy.CopyIn;
 import org.postgresql.copy.CopyManager;
@@ -181,7 +184,8 @@ public class GtfsParser {
 
         detector.reset();
 
-        return new CsvReader(f.getAbsolutePath(), ',', charset);
+        InputStream is = new BOMInputStream(new FileInputStream(f), false);
+        return new CsvReader(is, ',', charset);
     }
 
     private void parseFiles() throws Exception {
@@ -430,7 +434,10 @@ public class GtfsParser {
             int i = 0;
 
             String agencyId = csv.get("agency_id");
-            
+            for (int x = 0; x < csv.getColumnCount(); x++) {
+                System.out.println(String.format("%s = %s", csv.getHeader(x), csv.get(x)));
+            }
+
             if (copier == null) {
                 insert.setString(++i, agencyId);
                 insert.setString(++i, csv.get("agency_name"));
@@ -464,6 +471,9 @@ public class GtfsParser {
 
             String routeId = csv.get("route_id");
 
+for (int x = 0; x < csv.getColumnCount(); x++) {
+    System.out.println(String.format("%s = %s", csv.getHeader(x), csv.get(x)));
+}
             if (copier == null) {
                 insert.setInt(++i, getMappedRouteId(routeId));
                 insert.setString(++i, routeId);
@@ -533,6 +543,9 @@ public class GtfsParser {
             }
 
             int i = 0;
+            for (int x = 0; x < csv.getColumnCount(); x++) {
+                System.out.println(String.format("%s = %s", csv.getHeader(x), csv.get(x)));
+            }
 
             String stopId = csv.get(stopIdIdx);
             String parentId = csv.get(parentStationIdx);
