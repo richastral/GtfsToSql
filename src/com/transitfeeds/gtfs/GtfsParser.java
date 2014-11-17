@@ -434,9 +434,6 @@ public class GtfsParser {
             int i = 0;
 
             String agencyId = csv.get("agency_id");
-            for (int x = 0; x < csv.getColumnCount(); x++) {
-                System.out.println(String.format("%s = %s", csv.getHeader(x), csv.get(x)));
-            }
 
             if (copier == null) {
                 insert.setString(++i, agencyId);
@@ -471,9 +468,6 @@ public class GtfsParser {
 
             String routeId = csv.get("route_id");
 
-for (int x = 0; x < csv.getColumnCount(); x++) {
-    System.out.println(String.format("%s = %s", csv.getHeader(x), csv.get(x)));
-}
             if (copier == null) {
                 insert.setInt(++i, getMappedRouteId(routeId));
                 insert.setString(++i, routeId);
@@ -543,9 +537,6 @@ for (int x = 0; x < csv.getColumnCount(); x++) {
             }
 
             int i = 0;
-            for (int x = 0; x < csv.getColumnCount(); x++) {
-                System.out.println(String.format("%s = %s", csv.getHeader(x), csv.get(x)));
-            }
 
             String stopId = csv.get(stopIdIdx);
             String parentId = csv.get(parentStationIdx);
