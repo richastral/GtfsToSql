@@ -55,7 +55,7 @@ public class GtfsParser {
     private static String[] TABLES = {
             "agency", "agency_id TEXT, agency_name TEXT, agency_timezone TEXT, agency_url TEXT, agency_lang TEXT, agency_phone TEXT, agency_fare_url TEXT", "agency_id",
             "stops", "stop_index INTEGER, stop_id TEXT, stop_code TEXT, stop_name TEXT, stop_desc TEXT, zone_index INTEGER, zone_id TEXT, stop_lat REAL, stop_lon REAL, location_type INTEGER, parent_station TEXT, parent_station_index INTEGER, wheelchair_boarding INTEGER, stop_url TEXT, stop_timezone TEXT", "stop_index,stop_id,stop_code,zone_id,zone_index",
-            "routes", "route_index INTEGER, route_id TEXT, agency_id TEXT, route_short_name TEXT, route_long_name TEXT, route_desc TEXT, route_type INTEGER, route_color TEXT, route_text_color TEXT", "route_index,route_id,agency_id",
+            "routes", "route_index INTEGER, route_id TEXT, agency_id TEXT, route_short_name TEXT, route_long_name TEXT, route_desc TEXT, route_type INTEGER, route_color TEXT, route_text_color TEXT, route_url TEXT", "route_index,route_id,agency_id",
             "trips", "trip_index INTEGER, route_index INTEGER, service_index INTEGER, service_id TEXT, shape_index INTEGER, shape_id TEXT, trip_id TEXT, trip_headsign TEXT, trip_short_name TEXT, direction_id INTEGER, block_index INTEGER, block_id TEXT, wheelchair_accessible INTEGER", "trip_index,route_index,service_index,shape_index,trip_id,block_index",
             "stop_times", "stop_index INTEGER, trip_index INTEGER, arrival_time TEXT, arrival_time_secs INTEGER, departure_time TEXT, departure_time_secs INTEGER, stop_sequence INTEGER, last_stop INTEGER, shape_dist_traveled REAL, stop_headsign TEXT, pickup_type INTEGER, drop_off_type INTEGER", "stop_index,trip_index",
             "calendar", "service_index INTEGER, service_id TEXT, monday INTEGER, tuesday INTEGER, wednesday INTEGER, thursday INTEGER, friday INTEGER, saturday INTEGER, sunday INTEGER, start_date TEXT, end_date TEXT", "service_index,service_id",
@@ -461,7 +461,7 @@ public class GtfsParser {
     private class RouteRowProcessor extends RowProcessor {
         @Override
         public String[] getFields() {
-            String fields[] = { "route_index", "route_id", "agency_id", "route_short_name", "route_long_name", "route_desc", "route_type", "route_color", "route_text_color" };
+            String fields[] = { "route_index", "route_id", "agency_id", "route_short_name", "route_long_name", "route_desc", "route_type", "route_color", "route_text_color", "route_url" };
             return fields;
         }
         
@@ -486,6 +486,7 @@ public class GtfsParser {
                 insert.setInt(++i, Integer.valueOf(csv.get("route_type")));
                 insert.setString(++i, csv.get("route_color"));
                 insert.setString(++i, csv.get("route_text_color"));
+                insert.setString(++i, csv.get("route_url"));
             }
             else {
                 DataCopierRow row = new DataCopierRow();
@@ -498,6 +499,7 @@ public class GtfsParser {
                 row.add(Integer.valueOf(csv.get("route_type")));
                 row.add(csv.get("route_color"));
                 row.add(csv.get("route_text_color"));
+                row.add(csv.get("route_url"));
                 
                 row.write(copier, COPY_SEPARATOR);
             }
@@ -888,8 +890,20 @@ public class GtfsParser {
                 }
             }
             
-            int pickupType = Integer.valueOf(csv.get(pickupTypeIdx));
-            int dropOffType = Integer.valueOf(csv.get(dropOffTypeIdx));
+            int pickupType = -1;
+            int dropOffType = -1;
+            
+            try {
+                pickupType = Integer.valueOf(csv.get(pickupTypeIdx));
+            }
+            catch (Exception e) {
+            }
+            
+            try {
+                dropOffType = Integer.valueOf(csv.get(dropOffTypeIdx));
+            }
+            catch (Exception e) {
+            }
             
             if (copier == null) {
                 insert.setInt(++i, getMappedTripId(tripId));
@@ -934,8 +948,19 @@ public class GtfsParser {
                     insert.setString(++i, stopHeadsign);
                 }
                 
-                insert.setInt(++i, pickupType);
-                insert.setInt(++i, dropOffType);
+                if (pickupType < 0) {
+                    insert.setNull(++i, java.sql.Types.INTEGER);
+                }
+                else {
+                    insert.setInt(++i, pickupType);
+                }
+                
+                if (dropOffType < 0) {
+                    insert.setNull(++i, java.sql.Types.INTEGER);
+                }
+                else {
+                    insert.setInt(++i, dropOffType);
+                }
             }
             else {
                 DataCopierRow row = new DataCopierRow();
@@ -962,8 +987,20 @@ public class GtfsParser {
                     row.add(stopHeadsign);
                 }
                 
-                row.add(pickupType);
-                row.add(dropOffType);
+                if (pickupType < 0) {
+                    row.addNull();
+                }
+                else {
+                    row.add(pickupType);
+                }
+                
+                if (dropOffType < 0) {
+                    row.addNull();
+                }
+                else {
+                    row.add(dropOffType);
+                }
+                
                 
                 row.write(copier, COPY_SEPARATOR);
             }
