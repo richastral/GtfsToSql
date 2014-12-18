@@ -169,6 +169,10 @@ public class GtfsParser {
             }
 
             File f = getFile(filename);
+            
+            if (!f.exists()) {
+                f = getFile(TABLES[i] + ".csv");
+            }
 
             try {
                 parseFile(f, TABLES[i]);
