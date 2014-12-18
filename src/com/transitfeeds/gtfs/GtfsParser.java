@@ -12,9 +12,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -72,33 +70,7 @@ public class GtfsParser {
     public void parse() throws Exception {
         createGtfsTables();
         parseFiles();
-        deleteOldTrips();
         createIndexes();
-    }
-
-    private void deleteOldTrips() throws SQLException {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
-        Date now = new Date();
-
-        String date = sdf.format(now);
-
-        String subquery = String.format("SELECT service_index FROM calendar WHERE end_date < '%s' AND service_index NOT IN (SELECT service_index FROM calendar_dates WHERE date >= '%s')", date, date);
-
-        String[] queries = { 
-                String.format("DELETE FROM stop_times WHERE trip_index IN (SELECT trip_index FROM trips WHERE service_index IN (%s))", subquery),
-                String.format("DELETE from trips WHERE service_index IN (%s)", subquery), 
-                String.format("DELETE FROM calendar_dates WHERE service_index IN (%s)", subquery),
-                String.format("DELETE from calendar WHERE service_index IN (%s)", subquery) 
-        };
-
-        for (int i = 0; i < queries.length; i++) {
-            System.err.println(queries[i]);
-            Statement st = mConnection.createStatement();
-            st.executeUpdate(queries[i]);
-            st.close();
-        }
-
-        mConnection.commit();
     }
 
     private void createGtfsTables() throws SQLException {
