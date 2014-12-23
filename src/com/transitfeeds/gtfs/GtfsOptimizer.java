@@ -15,6 +15,7 @@ public class GtfsOptimizer {
 
     public void optimize() throws SQLException {
         updateStopSequence();
+        calculateTripTimes();
         finalize();
     }
 
@@ -22,7 +23,7 @@ public class GtfsOptimizer {
         mConnection.setAutoCommit(true);
         
         String[] queries = {
-                "DELETE FROM stops WHERE stop_index NOT IN (SELECT DISTINCT stop_index FROM stop_times)",
+//                "DELETE FROM stops WHERE stop_index NOT IN (SELECT DISTINCT stop_index FROM stop_times)",
                 "VACUUM",
                 "ANALYZE"
         };
@@ -70,6 +71,66 @@ public class GtfsOptimizer {
         
         st.close();
         update.close();
+    }
+
+    private void calculateTripTimes() throws SQLException {
+        Statement st = mConnection.createStatement();
+        ResultSet result = st.executeQuery("SELECT trip_index FROM trips");
+        
+        PreparedStatement update = mConnection.prepareStatement("UPDATE trips SET departure_time = ?, departure_time_secs = ?, arrival_time = ?, arrival_time_secs = ? WHERE trip_index = ?");
+
+        PreparedStatement select = mConnection.prepareStatement("SELECT arrival_time, arrival_time_secs, departure_time, departure_time_secs FROM stop_times WHERE trip_index = ? ORDER BY stop_sequence");
+        
+        int row = 0;
+        
+        while (result.next()) {
+            int tripIndex = result.getInt(1);
+
+            select.setInt(1, tripIndex);
+            ResultSet stopTimes = select.executeQuery();
+
+            int arrivalTimeSecs = -1;
+            int departureTimeSecs = -1;
+            String arrivalTime = null;
+            String departureTime = null;
+            
+            int i = 0;
+            
+            while (stopTimes.next()) {
+                if (i++ == 0) {
+                    departureTime = stopTimes.getString(3);
+                    departureTimeSecs = stopTimes.getInt(4);
+                }
+                
+                arrivalTime = stopTimes.getString(1);
+                arrivalTimeSecs = stopTimes.getInt(2);
+            }
+            
+            stopTimes.close();
+            
+            update.setString(1, departureTime);
+            update.setInt(2, departureTimeSecs);
+            update.setString(3, arrivalTime);
+            update.setInt(4, arrivalTimeSecs);
+            update.setInt(5, tripIndex);
+            
+            update.addBatch();
+            
+            if ((row % 1000) == 0) {
+                update.executeBatch();
+                System.err.println(String.format("%d", row));
+            }
+            
+            row++;
+        }
+        
+        update.executeBatch();
+        mConnection.commit();
+        
+        select.close();
+        st.close();
+        update.close();
+        result.close();
     }
 
 }

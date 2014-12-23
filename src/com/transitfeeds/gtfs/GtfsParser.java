@@ -54,7 +54,7 @@ public class GtfsParser {
             "agency", "agency_id TEXT, agency_name TEXT, agency_timezone TEXT, agency_url TEXT, agency_lang TEXT, agency_phone TEXT, agency_fare_url TEXT", "agency_id",
             "stops", "stop_index INTEGER, stop_id TEXT, stop_code TEXT, stop_name TEXT, stop_desc TEXT, zone_index INTEGER, zone_id TEXT, stop_lat REAL, stop_lon REAL, location_type INTEGER, parent_station TEXT, parent_station_index INTEGER, wheelchair_boarding INTEGER, stop_url TEXT, stop_timezone TEXT", "stop_index,stop_id,stop_code,zone_id,zone_index",
             "routes", "route_index INTEGER, route_id TEXT, agency_id TEXT, route_short_name TEXT, route_long_name TEXT, route_desc TEXT, route_type INTEGER, route_color TEXT, route_text_color TEXT, route_url TEXT", "route_index,route_id,agency_id",
-            "trips", "trip_index INTEGER, route_index INTEGER, service_index INTEGER, service_id TEXT, shape_index INTEGER, shape_id TEXT, trip_id TEXT, trip_headsign TEXT, trip_short_name TEXT, direction_id INTEGER, block_index INTEGER, block_id TEXT, wheelchair_accessible INTEGER", "trip_index,route_index,service_index,shape_index,trip_id,block_index",
+            "trips", "trip_index INTEGER, route_index INTEGER, service_index INTEGER, service_id TEXT, shape_index INTEGER, shape_id TEXT, trip_id TEXT, trip_headsign TEXT, trip_short_name TEXT, direction_id INTEGER, block_index INTEGER, block_id TEXT, wheelchair_accessible INTEGER, departure_time TEXT, departure_time_secs INTEGER, arrival_time TEXT, arrival_time_secs INTEGER", "trip_index,route_index,service_index,shape_index,trip_id,block_index",
             "stop_times", "stop_index INTEGER, trip_index INTEGER, arrival_time TEXT, arrival_time_secs INTEGER, departure_time TEXT, departure_time_secs INTEGER, stop_sequence INTEGER, last_stop INTEGER, shape_dist_traveled REAL, stop_headsign TEXT, pickup_type INTEGER, drop_off_type INTEGER", "stop_index,trip_index",
             "calendar", "service_index INTEGER, service_id TEXT, monday INTEGER, tuesday INTEGER, wednesday INTEGER, thursday INTEGER, friday INTEGER, saturday INTEGER, sunday INTEGER, start_date TEXT, end_date TEXT", "service_index,service_id",
             "calendar_dates", "service_index INTEGER, service_id TEXT, date TEXT, exception_type INTEGER", "service_index",
@@ -126,6 +126,7 @@ public class GtfsParser {
 
         mConnection.commit();
     }
+    
 
     private File getFile(String filename) {
         return new File(mGtfsFile.getAbsolutePath() + System.getProperty("file.separator") + filename);
@@ -655,7 +656,7 @@ public class GtfsParser {
             String shapeId = csv.get(shapeIdIdx);
             String blockId = csv.get(blockIdIdx);
 
-            int directionId = 0;
+            int directionId = -1;
 
             try {
                 directionId = Integer.valueOf(csv.get(directionIdIdx));
@@ -679,7 +680,14 @@ public class GtfsParser {
                 insert.setString(++i, blockId);
                 insert.setString(++i, csv.get(tripHeadsignIdx));
                 insert.setString(++i, csv.get(tripShortNameIdx));
-                insert.setInt(++i, directionId);
+                
+                if (directionId < 0) {
+                    insert.setNull(++i, java.sql.Types.INTEGER);
+                }
+                else {
+                    insert.setInt(++i, directionId);
+                }
+                
                 insert.setInt(++i, wheelchair);
                 insert.setString(++i, shapeId);
                 insert.setString(++i, serviceId);
@@ -695,7 +703,14 @@ public class GtfsParser {
                 row.add(blockId);
                 row.add(csv.get(tripHeadsignIdx));
                 row.add(csv.get(tripShortNameIdx));
-                row.add(directionId);
+                
+                if (directionId < 0) {
+                    row.addNull();
+                }
+                else {
+                    row.add(directionId);
+                }
+                
                 row.add(wheelchair);
                 row.add(shapeId);
                 row.add(serviceId);
